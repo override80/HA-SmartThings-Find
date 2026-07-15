@@ -1,7 +1,8 @@
 {
   "config": {
     "abort": {
-      "reauth_successful": "Reauthentication successful."
+      "reauth_successful": "Reauthentication successful.",
+      "reconfigure_successful": "Reconfiguration successful."
     },
     "progress": {
       "task_stage_one": "Preparing, please wait...",

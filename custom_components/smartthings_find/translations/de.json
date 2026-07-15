@@ -1,7 +1,8 @@
 {
   "config": {
     "abort": {
-      "reauth_successful": "Erfolgreich authentifiziert."
+      "reauth_successful": "Erfolgreich authentifiziert.",
+      "reconfigure_successful": "Erfolgreich neu konfiguriert."
     },
     "progress": {
       "task_stage_one": "Vorbereitung läuft, bitte warten...",

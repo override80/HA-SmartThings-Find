@@ -163,38 +163,46 @@ async def do_login_stage_two(session: aiohttp.ClientSession) -> str:
         # Fetch the 'next_url' we received from the previous request. On success, this sets
         # the initial JSESSIONID-cookie. We're not done yet, since this cookie is not valid
         # for SmartThings Find (which uses it's own JSESSIONID).
-        async with session.get(URL_SIGNIN_SUCCESS.format(next_url=next_url)) as res:
-            if res.status != 200:
-                _LOGGER.error(
-                    f"Login success URL request failed with status {res.status}")
-                return None
-            text = await res.text()
-            _LOGGER.debug(f"Step 5: Login success: Status Code: {res.status}")
-
+        #
         # The response contains another redirect URL which we need to extract from the
-        # received HTML/JS-content. This URL looks something like this:
+        # received HTML/JS-content, e.g.:
         # https://smartthingsfind.samsung.com/login.do?auth_server_url=eu-auth2.samsungosp.com
         #    &code=[...]&code_expires_in=300&state=[state we generated above]
         #    &api_server_url=eu-auth2.samsungosp.com
-        match = re.search(
-            r'window\.location\.href\s*=\s*[\'"]([^\'"]+)[\'"]', text)
-        if not match:
-            _LOGGER.error(
-                "Redirect URL not found in the login success response")
-            return None
+        #
+        # A plain Samsung-account login only needs a single hop here, but federated/social
+        # logins (e.g. "Sign in with Google") can bounce through one or more additional
+        # JS-redirects before finally reaching smartthingsfind.samsung.com. So we keep
+        # following these client-side redirects (aiohttp already follows real HTTP 3xx
+        # redirects on its own) until either none are left or we've landed on STF's domain.
+        next_get_url = URL_SIGNIN_SUCCESS.format(next_url=next_url)
+        for hop in range(5):
+            async with session.get(next_get_url) as res:
+                if res.status != 200:
+                    _LOGGER.error(
+                        f"Login success URL request failed with status {res.status}")
+                    return None
+                text = await res.text()
+                landed_host = res.url.host
+                _LOGGER.debug(
+                    f"Step 5.{hop}: Login redirect hop: Status Code: {res.status}, Host: {landed_host}")
 
-        redirect_url = match.group(1)
-        _LOGGER.debug(f"Found Redirect URL: {redirect_url}")
+            if landed_host == 'smartthingsfind.samsung.com':
+                break
 
-        # Fetch the received redirect_url. This response finally contains our JSESSIONID,
-        # which is what actually authenticates us for SmartThings Find.
-        async with session.get(redirect_url) as res:
-            if res.status != 200:
+            match = re.search(
+                r'window\.location\.href\s*=\s*[\'"]([^\'"]+)[\'"]', text)
+            if not match:
                 _LOGGER.error(
-                    f"Redirect URL request failed with status {res.status}")
+                    "Redirect URL not found in the login success response "
+                    f"(landed on host '{landed_host}' instead of smartthingsfind.samsung.com)")
                 return None
-            _LOGGER.debug(
-                f"Step 6: Follow redirect URL: Status Code: {res.status}")
+
+            next_get_url = match.group(1)
+            _LOGGER.debug(f"Found Redirect URL: {next_get_url}")
+        else:
+            _LOGGER.error("Too many redirects while following the login chain")
+            return None
 
         jsessionid = session.cookie_jar.filter_cookies(
             'https://smartthingsfind.samsung.com').get('JSESSIONID')
@@ -203,6 +211,23 @@ async def do_login_stage_two(session: aiohttp.ClientSession) -> str:
             return None
 
         _LOGGER.debug(f"JSESSIONID: {jsessionid.value[:20]}...")
+
+        # The cookie above can match SmartThings Find's domain without actually being a
+        # valid STF session (e.g. it could be Samsung's *account* session cookie, still
+        # scoped broadly enough to match by domain suffix). Verify it's accepted by STF
+        # itself before reporting success, so a broken session fails clearly right here
+        # instead of resurfacing as a confusing CSRF error during integration setup.
+        async with session.get(URL_GET_CSRF) as res:
+            if res.status != 200 or not res.headers.get("_csrf"):
+                body = await res.text()
+                _LOGGER.error(
+                    "Login completed, but the resulting session was not accepted by "
+                    f"SmartThings Find (Status: {res.status}, Response: '{body}'). "
+                    "This can happen with some social/federated login methods (e.g. "
+                    "'Sign in with Google') if the login redirect chain didn't fully "
+                    "reach smartthingsfind.samsung.com.")
+                return None
+
         return jsessionid.value
 
     except Exception as e:

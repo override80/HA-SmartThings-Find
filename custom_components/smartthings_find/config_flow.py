@@ -113,11 +113,17 @@ class SmartThingsFindConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         data={CONF_JSESSIONID: self.jsessionid}
         
         if self.reauth_entry:
-            # Finish step was called by reauth-flow. Do not create a new entry,
-            # instead update the existing entry
+            # Finish step was called by the reauth- or reconfigure-flow. Do not
+            # create a new entry, instead update the existing entry
+            reason = (
+                "reconfigure_successful"
+                if self.source == config_entries.SOURCE_RECONFIGURE
+                else "reauth_successful"
+            )
             return self.async_update_reload_and_abort(
                 self.reauth_entry,
-                data=data
+                data=data,
+                reason=reason
             )
         
         return self.async_create_entry(title="SmartThings Find", data=data)
@@ -137,7 +143,10 @@ class SmartThingsFindConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_user()
     
     async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
-        return await self.async_step_reauth_confirm(self)
+        self.reauth_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_reauth_confirm(user_input)
     
     @staticmethod
     @callback

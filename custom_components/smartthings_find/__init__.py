@@ -1,6 +1,7 @@
 from datetime import timedelta
 import logging
 import aiohttp
+from yarl import URL
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.const import Platform
@@ -39,7 +40,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     jsessionid = entry.data[CONF_JSESSIONID]
 
     session = async_get_clientsession(hass)
-    session.cookie_jar.update_cookies({"JSESSIONID": jsessionid})
+    # Explicitly scope the cookie to the STF domain. Without response_url,
+    # aiohttp stores it as a "shared" cookie sent with every request made
+    # through HA's session, including ones from unrelated integrations.
+    session.cookie_jar.update_cookies(
+        {"JSESSIONID": jsessionid},
+        response_url=URL("https://smartthingsfind.samsung.com"),
+    )
 
     active_smarttags = entry.options.get(CONF_ACTIVE_MODE_SMARTTAGS, CONF_ACTIVE_MODE_SMARTTAGS_DEFAULT)
     active_others = entry.options.get(CONF_ACTIVE_MODE_OTHERS, CONF_ACTIVE_MODE_OTHERS_DEFAULT)
