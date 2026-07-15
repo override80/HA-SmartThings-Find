@@ -65,11 +65,11 @@ async def do_login_stage_one(hass: HomeAssistant) -> tuple:
 
         # Load the "Login with QR-Code"-page
         async with session.get(URL_QR_CODE_SIGNIN) as res:
+            text = await res.text()
             if res.status != 200:
                 _LOGGER.error(
                     f"QR code URL request failed with status {res.status}, Response: {text[:250]}...")
                 return None
-            text = await res.text()
             _LOGGER.debug(f"Step 2: QR-Code URL: Status Code: {res.status}")
 
         # Search the URL which is embedded in the QR Code. It looks like this:
